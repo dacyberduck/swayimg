@@ -13,8 +13,10 @@
 #include "ui/ui.h"
 #include "viewport.h"
 
+#include <linux/limits.h>
 #include <pthread.h>
 #include <string.h>
+#include <time.h>
 
 /** Viewer context. */
 struct viewer {
@@ -644,11 +646,45 @@ static bool handle_action(const struct action* action)
         case action_export:
             if (!*action->params) {
                 info_update(info_status, "Error: export path is not specified");
-            } else if (image_export(ctx.vp.image, ctx.vp.frame,
-                                    action->params)) {
-                info_update(info_status, "Exported to %s", action->params);
             } else {
-                info_update(info_status, "Error: export failed");
+                char path[PATH_MAX];
+                size_t path_pos = 0;
+                const char *src = action->params;
+
+                time_t now = time(NULL);
+                struct tm *tm_info = localtime(&now);
+                while (*src && path_pos < sizeof(path) - 1) {
+                    if (*src == '%') {
+                        src++;
+                        switch (*src) {
+                            case 't': {
+                                size_t len = strftime(path + path_pos,
+                                        sizeof(path) - path_pos,
+                                        "%Y%m%d%H%M%S", tm_info);
+                                path_pos += len;
+                                src++;
+                                break;
+                            }
+                            case '%':
+                                path[path_pos++] = '%';
+                                src++;
+                                break;
+                            default:
+                                path[path_pos++] = '%';
+                                break;
+                        }
+                    } else {
+                        path[path_pos++] = *src++;
+                    }
+                }
+                path[path_pos] = '\0';
+
+                if (image_export(ctx.vp.image, ctx.vp.frame,
+                                    path)) {
+                    info_update(info_status, "Exported to %s", path);
+                } else {
+                    info_update(info_status, "Error: export failed");
+                }
             }
             app_redraw();
             break;
